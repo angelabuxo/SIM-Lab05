@@ -36,6 +36,18 @@ Insight Maker i la visualització 2D es carreguen sols a les altres columnes.
 
 ---
 
+## Visualització 2D (`viz.html`)
+
+La visualització mostra l'oceà amb peixos i barques que representen les variables del model:
+
+- **N (biomassa)** → nombre i mida dels peixos (més biomassa = més peixos, més grans)
+- **E (esforç de captura)** → nombre i mida de les barques (més esforç = més barques, més grans)
+- **K (capacitat de càrrega)** → es mostra a la barra superior i al gràfic
+
+El **slider de temps** sobre el gràfic permet recórrer la simulació pas a pas. El marcador vertical indica l'instant seleccionat, amb punts sobre les corbes N i E.
+
+---
+
 ## Lliurament
 
 Zip amb `InsightMaker.xml`, `iface.html`, `viz.html` i un PDF breu amb captures i comentaris.

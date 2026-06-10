@@ -42,6 +42,27 @@
     .pill.bad { background: rgba(231, 76, 60, 0.2); color: #ffb3aa; }
     #canvas-wrap { position: fixed; inset: 0; top: 42px; }
     canvas { display: block; }
+    #slider-wrap {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #a8c4e0;
+    }
+    #slider-wrap input[type=range] {
+      flex: 1;
+      accent-color: #48dca6;
+      height: 6px;
+    }
+    #slider-wrap .slider-label {
+      min-width: 40px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
@@ -54,6 +75,11 @@
     <span class="pill">E: <span id="eLabel">—</span></span>
     <span class="pill">K: <span id="kLabel">—</span></span>
     <span class="pill">Msgs: <span id="msgLabel">0</span></span>
+    <span class="pill">Boats: <span id="boatsLabel">—</span></span>
+  </div>
+  <div id="slider-wrap">
+    <span class="slider-label" id="sliderTimeLabel">t=0</span>
+    <input type="range" id="timeSlider" min="0" max="0" value="0">
   </div>
   <div id="canvas-wrap"></div>
 
@@ -74,6 +100,10 @@
       e: document.getElementById("eLabel"),
       k: document.getElementById("kLabel"),
       msg: document.getElementById("msgLabel"),
+      boats: document.getElementById("boatsLabel"),
+      slider: document.getElementById("timeSlider"),
+      sliderTime: document.getElementById("sliderTimeLabel"),
+      sliderWrap: document.getElementById("slider-wrap"),
     };
     ui.channel.textContent = CHANNEL;
 
@@ -142,17 +172,18 @@
       }
       if (!data || typeof data !== "object") return;
 
-      const times = pickSeries(data, "times", "t", "time");
-      const N = pickSeries(data, "N", "n");
-      const E = pickSeries(data, "E", "e");
-      let K = data.K ?? data.k;
+      const times = pickSeries(data, "times", "t", "time", "temps", "x");
+      const N = pickSeries(data, "N", "n", "biomass", "population", "pop", "biomassa", "poblacio");
+      const E = pickSeries(data, "E", "e", "effort", "fishing", "capture", "captura", "esforç", "esforc", "F", "f");
+      let K = data.K ?? data.k ?? data.capacity ?? data.capacitat;
+      console.log("[viz] received keys:", Object.keys(data), "→ N:", N.length ? last(N) : "(absent)", "E:", E.length ? last(E) : "(absent)", "K:", K);
       if (Array.isArray(K) || typeof K === "string") {
         const kArr = coerceArray(K);
         K = kArr.length ? last(kArr) : Number(String(K).replace(/[,;\s].*$/, ""));
       }
       K = Number(K);
 
-      if (!times.length && !N.length && !E.length) {
+      if (!times.length && !N.length && !E.length && Number.isNaN(K)) {
         setPill(ui.mode, "MQTT rebut però sense dades", "warn");
         return;
       }
@@ -167,9 +198,6 @@
       state.msgCount = (state.msgCount || 0) + 1;
       ui.msg.textContent = String(state.msgCount);
       setPill(ui.mode, "Dades en viu", "ok");
-      ui.n.textContent = Math.round(last(state.N)).toLocaleString("ca");
-      ui.e.textContent = Math.round(last(state.E)).toLocaleString("ca");
-      ui.k.textContent = Math.round(state.K).toLocaleString("ca");
     }
 
     function connectMqtt() {
@@ -244,13 +272,26 @@
         else if (!state.live) setPill(ui.mode, "Esperant Snap!", "warn");
 
         state.fishPhase += 0.015;
-        const nNow = last(state.N, 500);
-        const eNow = last(state.E, 100);
+        const simLen = Math.min(state.N.length, state.E.length);
+        ui.slider.max = Math.max(0, simLen - 1);
+        const idx = simLen ? parseInt(ui.slider.value, 10) : 0;
+        const nNow = state.N.length ? state.N[Math.min(idx, state.N.length - 1)] : 500;
+        const eNow = state.E.length ? state.E[Math.min(idx, state.E.length - 1)] : 100;
         const kNow = Math.max(1, state.K);
+        if (state.times.length) {
+          ui.sliderTime.textContent = "t=" + Math.round(state.times[Math.min(idx, state.times.length - 1)]);
+        }
+
+        ui.n.textContent = Math.round(nNow).toLocaleString("ca");
+        ui.e.textContent = Math.round(eNow).toLocaleString("ca");
+        ui.k.textContent = Math.round(kNow).toLocaleString("ca");
 
         const oceanH = p.height * 0.62;
-        const chartY = oceanH + 8;
+        const sliderH = 28;
+        const chartY = oceanH + 8 + sliderH;
         const chartH = p.height - chartY - 10;
+        const sliderY = oceanH + 8;
+        ui.sliderWrap.style.top = sliderY + "px";
 
         // cel
         for (let y = 0; y < oceanH; y++) {
@@ -265,18 +306,6 @@
         p.fill(8, 58, 104, 230);
         p.rect(0, oceanH * 0.55, p.width, oceanH * 0.45);
 
-        // línia capacitat K
-        const kY = p.map(nNow, 0, kNow * 1.15, oceanH * 0.92, oceanH * 0.58, true);
-        p.stroke(255, 214, 102, 180);
-        p.strokeWeight(2);
-        p.drawingContext.setLineDash([8, 8]);
-        p.line(24, kY, p.width - 24, kY);
-        p.drawingContext.setLineDash([]);
-        p.noStroke();
-        p.fill(255, 214, 102);
-        p.textSize(12);
-        p.text(`Capacitat K ≈ ${Math.round(kNow)}`, 28, kY - 8);
-
         // peixos
         const fishCount = p.constrain(p.floor(p.map(nNow, 0, kNow, 4, 48)), 4, 48);
         for (let i = 0; i < fishCount; i++) {
@@ -288,8 +317,11 @@
 
         // barques (esforç E)
         const boats = p.constrain(p.floor(p.map(eNow, 0, 250, 1, 6)), 1, 6);
+        ui.boats.textContent = boats + " (E=" + Math.round(eNow) + ")";
         for (let i = 0; i < boats; i++) {
-          const x = 60 + i * ((p.width - 120) / Math.max(1, boats - 1));
+          const spacing = 80;
+          const fleetWidth = (boats - 1) * spacing;
+          const x = (p.width - fleetWidth) / 2 + i * spacing;
           const scale = 1 + eNow / 400;
           const y = oceanH * 0.55 - 4.5 * scale;
           drawBoat(p, x, y, scale);
@@ -299,7 +331,7 @@
         p.textSize(14);
         p.text("Biomassa (N) i esforç de captura (E) — model Schaefer-Smith", 16, 24);
 
-        drawChart(p, 12, chartY, p.width - 24, chartH, state.times, state.N, state.E, kNow);
+        drawChart(p, 12, chartY, p.width - 24, chartH, state.times, state.N, state.E, kNow, idx);
       };
     }, document.getElementById("canvas-wrap"));
 
@@ -330,7 +362,7 @@
       p.pop();
     }
 
-    function drawChart(p, x, y, w, h, times, seriesN, seriesE, k) {
+    function drawChart(p, x, y, w, h, times, seriesN, seriesE, k, idx) {
       p.fill(12, 28, 48, 220);
       p.stroke(255, 255, 255, 30);
       p.strokeWeight(1);
@@ -361,6 +393,26 @@
 
       drawSeries(p, times, seriesN, maxT, maxY, gx, gy, gw, gh, p.color(72, 220, 170));
       drawSeries(p, times, seriesE, maxT, maxY, gx, gy, gw, gh, p.color(255, 130, 110));
+
+      const tIdx = Math.min(idx, times.length - 1);
+      if (tIdx >= 0 && tIdx < times.length) {
+        const markerX = gx + (times[tIdx] / maxT) * gw;
+        p.stroke(255, 255, 255, 140);
+        p.strokeWeight(1);
+        p.drawingContext.setLineDash([4, 4]);
+        p.line(markerX, gy, markerX, gy + gh);
+        p.drawingContext.setLineDash([]);
+        if (tIdx < seriesN.length) {
+          p.noStroke();
+          p.fill(72, 220, 170);
+          p.circle(markerX, gy + gh - (seriesN[tIdx] / maxY) * gh, 5);
+        }
+        if (tIdx < seriesE.length) {
+          p.noStroke();
+          p.fill(255, 130, 110);
+          p.circle(markerX, gy + gh - (seriesE[tIdx] / maxY) * gh, 5);
+        }
+      }
 
       p.noStroke();
       p.fill(200, 220, 240);
