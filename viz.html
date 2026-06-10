@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Micromon Schaefer-Smith — Visualització 2D</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0b1d33;
+      color: #e8f1ff;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+    }
+    #ui {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(8, 18, 34, 0.88);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 13px;
+      backdrop-filter: blur(6px);
+    }
+    #ui strong { font-weight: 600; }
+    .pill {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      white-space: nowrap;
+    }
+    .pill.ok { background: rgba(46, 204, 113, 0.2); color: #9dffc0; }
+    .pill.warn { background: rgba(241, 196, 15, 0.18); color: #ffe08a; }
+    .pill.bad { background: rgba(231, 76, 60, 0.2); color: #ffb3aa; }
+    #canvas-wrap { position: fixed; inset: 0; top: 42px; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <strong>Micromon 2D</strong>
+    <span id="mqttStatus" class="pill bad">MQTT: desconnectat</span>
+    <span id="modeStatus" class="pill warn">Mode demo</span>
+    <span class="pill">Canal: <span id="channelLabel">upc</span></span>
+    <span class="pill">N: <span id="nLabel">—</span></span>
+    <span class="pill">E: <span id="eLabel">—</span></span>
+    <span class="pill">K: <span id="kLabel">—</span></span>
+  </div>
+  <div id="canvas-wrap"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const CHANNEL = params.get("channel") || "upc";
+    const BROKER = params.get("broker") || "wss://broker.emqx.io:8084/mqtt";
+    const TOPIC = `name/${CHANNEL}/viz`;
+    const DEMO = params.get("demo") !== "0";
+
+    const ui = {
+      mqtt: document.getElementById("mqttStatus"),
+      mode: document.getElementById("modeStatus"),
+      channel: document.getElementById("channelLabel"),
+      n: document.getElementById("nLabel"),
+      e: document.getElementById("eLabel"),
+      k: document.getElementById("kLabel"),
+    };
+    ui.channel.textContent = CHANNEL;
+
+    const state = {
+      connected: false,
+      live: false,
+      lastUpdate: 0,
+      times: [],
+      N: [],
+      E: [],
+      K: 1000,
+      fishPhase: 0,
+      demoT: 0,
+    };
+
+    function setPill(el, text, cls) {
+      el.textContent = text;
+      el.className = "pill " + cls;
+    }
+
+    function last(arr, fallback = 0) {
+      return arr.length ? Number(arr[arr.length - 1]) : fallback;
+    }
+
+    function applyPayload(raw) {
+      let data;
+      try {
+        data = typeof raw === "string" ? JSON.parse(raw) : raw;
+      } catch {
+        return;
+      }
+      if (!data || typeof data !== "object") return;
+
+      if (Array.isArray(data.times)) state.times = data.times.map(Number);
+      if (Array.isArray(data.N)) state.N = data.N.map(Number);
+      if (Array.isArray(data.E)) state.E = data.E.map(Number);
+      if (data.K !== undefined) state.K = Number(data.K);
+      else if (Array.isArray(data.K)) state.K = last(data.K, state.K);
+
+      state.live = true;
+      state.lastUpdate = Date.now();
+      setPill(ui.mode, "Dades en viu", "ok");
+      ui.n.textContent = Math.round(last(state.N)).toLocaleString("ca");
+      ui.e.textContent = Math.round(last(state.E)).toLocaleString("ca");
+      ui.k.textContent = Math.round(state.K).toLocaleString("ca");
+    }
+
+    function connectMqtt() {
+      const client = mqtt.connect(BROKER, {
+        keepalive: 60,
+        reconnectPeriod: 3000,
+        connectTimeout: 10000,
+      });
+
+      client.on("connect", () => {
+        state.connected = true;
+        setPill(ui.mqtt, `MQTT: connectat (${TOPIC})`, "ok");
+        client.subscribe(TOPIC);
+      });
+
+      client.on("reconnect", () => {
+        setPill(ui.mqtt, "MQTT: reconnectant…", "warn");
+      });
+
+      client.on("close", () => {
+        state.connected = false;
+        setPill(ui.mqtt, "MQTT: desconnectat", "bad");
+      });
+
+      client.on("error", () => {
+        setPill(ui.mqtt, "MQTT: error", "bad");
+      });
+
+      client.on("message", (_topic, payload) => {
+        applyPayload(payload.toString());
+      });
+    }
+
+    connectMqtt();
+
+    function demoStep() {
+      if (state.live && Date.now() - state.lastUpdate < 8000) return;
+      state.demoT += 0.02;
+      const K = 1000;
+      const tMax = 80;
+      const times = [];
+      const N = [];
+      const E = [];
+      for (let t = 0; t <= tMax; t += 2) {
+        times.push(t);
+        const growth = K / (1 + Math.exp(-0.12 * (t - 25)));
+        const effort = 120 + 40 * Math.sin(state.demoT + t * 0.08);
+        const capture = 0.0015 * growth * effort;
+        const biomass = Math.max(80, growth - capture * 0.35);
+        N.push(biomass);
+        E.push(effort);
+      }
+      applyPayload({ times, N, E, K });
+      setPill(ui.mode, "Mode demo (esperant Snap!)", "warn");
+    }
+
+    new p5((p) => {
+      p.setup = () => {
+        const wrap = document.getElementById("canvas-wrap");
+        const c = p.createCanvas(wrap.clientWidth, wrap.clientHeight);
+        c.parent("canvas-wrap");
+      };
+
+      p.windowResized = () => {
+        const wrap = document.getElementById("canvas-wrap");
+        p.resizeCanvas(wrap.clientWidth, wrap.clientHeight);
+      };
+
+      p.draw = () => {
+        if (DEMO) demoStep();
+
+        state.fishPhase += 0.015;
+        const nNow = last(state.N, 500);
+        const eNow = last(state.E, 100);
+        const kNow = Math.max(1, state.K);
+
+        const oceanH = p.height * 0.62;
+        const chartY = oceanH + 8;
+        const chartH = p.height - chartY - 10;
+
+        // cel
+        for (let y = 0; y < oceanH; y++) {
+          const t = y / oceanH;
+          const c = p.lerpColor(p.color(72, 152, 220), p.color(18, 74, 130), t);
+          p.stroke(c);
+          p.line(0, y, p.width, y);
+        }
+
+        // aigua
+        p.noStroke();
+        p.fill(8, 58, 104, 230);
+        p.rect(0, oceanH * 0.55, p.width, oceanH * 0.45);
+
+        // línia capacitat K
+        const kY = p.map(nNow, 0, kNow * 1.15, oceanH * 0.92, oceanH * 0.58, true);
+        p.stroke(255, 214, 102, 180);
+        p.strokeWeight(2);
+        p.drawingContext.setLineDash([8, 8]);
+        p.line(24, kY, p.width - 24, kY);
+        p.drawingContext.setLineDash([]);
+        p.noStroke();
+        p.fill(255, 214, 102);
+        p.textSize(12);
+        p.text(`Capacitat K ≈ ${Math.round(kNow)}`, 28, kY - 8);
+
+        // peixos
+        const fishCount = p.constrain(p.floor(p.map(nNow, 0, kNow, 4, 48)), 4, 48);
+        for (let i = 0; i < fishCount; i++) {
+          const x = (i * 97 + state.fishPhase * 60) % (p.width + 40) - 20;
+          const y = oceanH * 0.62 + ((i * 37) % 7) * 14 + p.sin(state.fishPhase + i) * 5;
+          const s = p.map(nNow, 0, kNow, 0.55, 1.2);
+          drawFish(p, x, y, s);
+        }
+
+        // barques (esforç E)
+        const boats = p.constrain(p.floor(p.map(eNow, 0, 250, 1, 6)), 1, 6);
+        for (let i = 0; i < boats; i++) {
+          const x = 60 + i * ((p.width - 120) / Math.max(1, boats - 1));
+          const y = oceanH * 0.78;
+          drawBoat(p, x, y, 1 + eNow / 400);
+        }
+
+        p.fill(230, 245, 255);
+        p.textSize(14);
+        p.text("Biomassa (N) i esforç de captura (E) — model Schaefer-Smith", 16, 24);
+
+        drawChart(p, 12, chartY, p.width - 24, chartH, state.times, state.N, state.E, kNow);
+      };
+    }, document.getElementById("canvas-wrap"));
+
+    function drawFish(p, x, y, scale) {
+      p.push();
+      p.translate(x, y);
+      p.scale(scale);
+      p.noStroke();
+      p.fill(255, 170, 70);
+      p.ellipse(0, 0, 22, 12);
+      p.triangle(-14, 0, -22, -6, -22, 6);
+      p.fill(255);
+      p.circle(7, -2, 3);
+      p.pop();
+    }
+
+    function drawBoat(p, x, y, scale) {
+      p.push();
+      p.translate(x, y);
+      p.scale(scale);
+      p.fill(120, 72, 38);
+      p.noStroke();
+      p.arc(0, 0, 34, 18, p.PI, p.TWO_PI);
+      p.fill(220, 80, 70);
+      p.rect(-2, -28, 4, 28);
+      p.pop();
+    }
+
+    function drawChart(p, x, y, w, h, times, seriesN, seriesE, k) {
+      p.fill(12, 28, 48, 220);
+      p.stroke(255, 255, 255, 30);
+      p.strokeWeight(1);
+      p.rect(x, y, w, h, 8);
+
+      if (!times.length || !seriesN.length) {
+        p.noStroke();
+        p.fill(180, 200, 220);
+        p.textSize(13);
+        p.text("Esperant dades de la simulació…", x + 16, y + h / 2);
+        return;
+      }
+
+      const pad = 28;
+      const maxT = Math.max(...times, 1);
+      const maxY = Math.max(k * 1.05, ...seriesN, ...seriesE, 1);
+
+      const gx = x + pad;
+      const gy = y + pad;
+      const gw = w - pad * 2;
+      const gh = h - pad * 1.6;
+
+      p.stroke(255, 255, 255, 35);
+      for (let i = 0; i <= 4; i++) {
+        const yy = gy + (gh * i) / 4;
+        p.line(gx, yy, gx + gw, yy);
+      }
+
+      drawSeries(p, times, seriesN, maxT, maxY, gx, gy, gw, gh, p.color(72, 220, 170));
+      drawSeries(p, times, seriesE, maxT, maxY, gx, gy, gw, gh, p.color(255, 130, 110));
+
+      p.noStroke();
+      p.fill(200, 220, 240);
+      p.textSize(11);
+      p.text("temps", gx + gw - 30, y + h - 8);
+      p.fill(72, 220, 170);
+      p.text("N", gx, y + 14);
+      p.fill(255, 130, 110);
+      p.text("E", gx + 18, y + 14);
+    }
+
+    function drawSeries(p, xs, ys, maxX, maxY, gx, gy, gw, gh, col) {
+      p.noFill();
+      p.stroke(col);
+      p.strokeWeight(2);
+      p.beginShape();
+      const n = Math.min(xs.length, ys.length);
+      for (let i = 0; i < n; i++) {
+        const px = gx + (xs[i] / maxX) * gw;
+        const py = gy + gh - (ys[i] / maxY) * gh;
+        p.vertex(px, py);
+      }
+      p.endShape();
+    }
+  </script>
+</body>
+</html>

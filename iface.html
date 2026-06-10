@@ -1,103 +1,156 @@
 <!DOCTYPE html>
-<!-- saved from url=(0024)https://xavierpi.com/im/ -->
-<html lang="es" data-lt-installed="true"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-  
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Split view</title>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Micromon — Snap! + Insight Maker + Visualització</title>
   <style>
-    :root { --gutter: 10px; --minPane: 180px; }
+    :root { --gutter: 8px; --minPane: 160px; }
     html, body { height: 100%; margin: 0; }
     .split {
       height: 100vh;
       display: grid;
-      grid-template-columns: 50% var(--gutter) 50%;
+      grid-template-columns: 1fr var(--gutter) 1fr var(--gutter) 1fr;
       overflow: hidden;
       user-select: none;
     }
-    .pane { overflow: hidden; }
-    iframe { width: 100%; height: 100%; border: 0; }
+    .pane { overflow: hidden; min-width: 0; }
+    .pane-label {
+      position: absolute;
+      top: 4px;
+      left: 8px;
+      z-index: 2;
+      font: 11px/1.2 system-ui, sans-serif;
+      color: #475569;
+      background: rgba(255,255,255,0.85);
+      padding: 2px 6px;
+      border-radius: 4px;
+      pointer-events: none;
+    }
+    .pane-inner { position: relative; width: 100%; height: 100%; }
+    iframe { width: 100%; height: 100%; border: 0; display: block; }
 
     .divider {
       cursor: col-resize;
       background: #e5e7eb;
       position: relative;
-      touch-action: none; /* importante para drag en móvil */
+      touch-action: none;
     }
-    .divider::after{
-      content:"";
-      position:absolute;
-      left:50%;
-      top:0;
-      transform:translateX(-50%);
-      width:2px;
-      height:100%;
-      background:#9ca3af;
-      opacity:.8;
+    .divider::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%);
+      width: 2px;
+      height: 100%;
+      background: #9ca3af;
+      opacity: 0.8;
     }
 
-    /* opcional: mientras arrastras, evitar selección y “flicker” */
     .dragging { cursor: col-resize; }
-    .dragging iframe { pointer-events: none; } /* evita que el iframe “robe” el drag */
+    .dragging iframe { pointer-events: none; }
   </style>
 </head>
-<body class="">
-  <div class="split" id="split" style="grid-template-columns: 1316px 10px 594px;">
-    <div class="pane"><iframe src="https://snap.berkeley.edu/snap/snap.html#open:https://raw.githubusercontent.com/angelabuxo/SIM-Lab05/tree/main/InsightMaker.xml"></iframe></div>
-    <div class="divider" id="divider" aria-label="Separador"></div>
-    <div class="pane"><iframe src="https://insightmaker.com/insight/4uanRT82clj5QHRmZOUhRi/12E-Lab03-Base"></iframe></div>
+<body>
+  <div class="split" id="split">
+    <div class="pane">
+      <div class="pane-inner">
+        <span class="pane-label">Snap! (control)</span>
+        <iframe
+          title="Snap!"
+          src="https://snap.berkeley.edu/snap/snap.html#open:https://raw.githubusercontent.com/angelabuxo/SIM-Lab05/main/InsightMaker.xml">
+        </iframe>
+      </div>
+    </div>
+    <div class="divider" id="divider1" aria-label="Separador 1"></div>
+    <div class="pane">
+      <div class="pane-inner">
+        <span class="pane-label">Insight Maker (model)</span>
+        <iframe
+          title="Insight Maker"
+          src="https://insightmaker.com/insight/4uanRT82clj5QHRmZOUhRi/12E-Lab03-Base">
+        </iframe>
+      </div>
+    </div>
+    <div class="divider" id="divider2" aria-label="Separador 2"></div>
+    <div class="pane">
+      <div class="pane-inner">
+        <span class="pane-label">Visualització 2D (p5.js)</span>
+        <iframe title="Visualització" src="viz.html?channel=upc"></iframe>
+      </div>
+    </div>
   </div>
 
   <script>
     const split = document.getElementById("split");
-    const divider = document.getElementById("divider");
+    const divider1 = document.getElementById("divider1");
+    const divider2 = document.getElementById("divider2");
+    const gutter = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--gutter")) || 8;
+    const minPane = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--minPane")) || 160;
 
-    const gutter = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--gutter")) || 10;
-    const minPane = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--minPane")) || 180;
+    let dragging = null;
 
-    let dragging = false;
-
-    function setColumns(clientX) {
+    function setColumns(x1, x2) {
       const rect = split.getBoundingClientRect();
-      let x = clientX - rect.left;               // posición dentro del contenedor
-      const max = rect.width - minPane - gutter; // límite derecho
-      const min = minPane;                       // límite izquierdo
+      const total = rect.width - gutter * 2;
+      const min = minPane;
+      const max = total - min * 2;
 
-      x = Math.max(min, Math.min(max, x));
+      x1 = Math.max(min, Math.min(max - min, x1));
+      x2 = Math.max(x1 + min, Math.min(total - min, x2));
 
-      const left = x;
-      const right = rect.width - left - gutter;
+      const left = x1;
+      const mid = x2 - x1;
+      const right = total - x2;
 
-      split.style.gridTemplateColumns = `${left}px ${gutter}px ${right}px`;
+      split.style.gridTemplateColumns = `${left}px ${gutter}px ${mid}px ${gutter}px ${right}px`;
     }
 
-    function onDown(e) {
-      dragging = true;
+    function initColumns() {
+      const rect = split.getBoundingClientRect();
+      const total = rect.width - gutter * 2;
+      setColumns(total / 3, (total * 2) / 3);
+    }
+
+    function onDown(which, e) {
+      dragging = which;
       document.body.classList.add("dragging");
-      const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
-      setColumns(clientX);
       e.preventDefault();
     }
 
     function onMove(e) {
       if (!dragging) return;
+      const rect = split.getBoundingClientRect();
       const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
-      setColumns(clientX);
+      const x = clientX - rect.left;
+      const cols = split.style.gridTemplateColumns.split(" ").map(parseFloat);
+      const x1 = cols[0];
+      const x2 = cols[0] + gutter + cols[2];
+
+      if (dragging === 1) setColumns(x, x2);
+      else setColumns(x1, x);
+
       e.preventDefault();
     }
 
     function onUp() {
-      dragging = false;
+      dragging = null;
       document.body.classList.remove("dragging");
     }
 
-    divider.addEventListener("mousedown", onDown);
+    initColumns();
+    window.addEventListener("resize", initColumns);
+
+    divider1.addEventListener("mousedown", (e) => onDown(1, e));
+    divider2.addEventListener("mousedown", (e) => onDown(2, e));
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
 
-    divider.addEventListener("touchstart", onDown, { passive: false });
+    divider1.addEventListener("touchstart", (e) => onDown(1, e), { passive: false });
+    divider2.addEventListener("touchstart", (e) => onDown(2, e), { passive: false });
     window.addEventListener("touchmove", onMove, { passive: false });
     window.addEventListener("touchend", onUp);
   </script>
-
-
-</body></html>
+</body>
+</html>
