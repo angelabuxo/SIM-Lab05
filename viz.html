@@ -48,11 +48,12 @@
   <div id="ui">
     <strong>Micromon 2D</strong>
     <span id="mqttStatus" class="pill bad">MQTT: desconnectat</span>
-    <span id="modeStatus" class="pill warn">Mode demo</span>
+    <span id="modeStatus" class="pill warn">Esperant Snap!</span>
     <span class="pill">Canal: <span id="channelLabel">upc</span></span>
     <span class="pill">N: <span id="nLabel">—</span></span>
     <span class="pill">E: <span id="eLabel">—</span></span>
     <span class="pill">K: <span id="kLabel">—</span></span>
+    <span class="pill">Msgs: <span id="msgLabel">0</span></span>
   </div>
   <div id="canvas-wrap"></div>
 
@@ -63,7 +64,7 @@
     const CHANNEL = params.get("channel") || "upc";
     const BROKER = params.get("broker") || "wss://broker.emqx.io:8084/mqtt";
     const TOPIC = `name/${CHANNEL}/viz`;
-    const DEMO = params.get("demo") !== "0";
+    const DEMO = params.get("demo") === "1";
 
     const ui = {
       mqtt: document.getElementById("mqttStatus"),
@@ -72,6 +73,7 @@
       n: document.getElementById("nLabel"),
       e: document.getElementById("eLabel"),
       k: document.getElementById("kLabel"),
+      msg: document.getElementById("msgLabel"),
     };
     ui.channel.textContent = CHANNEL;
 
@@ -85,6 +87,7 @@
       K: 1000,
       fishPhase: 0,
       demoT: 0,
+      msgCount: 0,
     };
 
     function setPill(el, text, cls) {
@@ -96,23 +99,68 @@
       return arr.length ? Number(arr[arr.length - 1]) : fallback;
     }
 
+    function coerceArray(value) {
+      if (value == null) return [];
+      if (Array.isArray(value)) return value.map(Number).filter((n) => !Number.isNaN(n));
+      if (typeof value === "number") return [value];
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return [];
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) return parsed.map(Number).filter((n) => !Number.isNaN(n));
+          if (typeof parsed === "number") return [parsed];
+        } catch {
+          /* continua */
+        }
+        return trimmed
+          .replace(/^\[|\]$/g, "")
+          .split(/[,;\s]+/)
+          .map(Number)
+          .filter((n) => !Number.isNaN(n));
+      }
+      return [];
+    }
+
+    function pickSeries(data, ...keys) {
+      for (const key of keys) {
+        const arr = coerceArray(data[key]);
+        if (arr.length) return arr;
+      }
+      return [];
+    }
+
     function applyPayload(raw) {
       let data;
       try {
         data = typeof raw === "string" ? JSON.parse(raw) : raw;
       } catch {
+        setPill(ui.mode, "Payload no vàlid", "bad");
         return;
       }
       if (!data || typeof data !== "object") return;
 
-      if (Array.isArray(data.times)) state.times = data.times.map(Number);
-      if (Array.isArray(data.N)) state.N = data.N.map(Number);
-      if (Array.isArray(data.E)) state.E = data.E.map(Number);
-      if (data.K !== undefined) state.K = Number(data.K);
-      else if (Array.isArray(data.K)) state.K = last(data.K, state.K);
+      const times = pickSeries(data, "times", "t", "time");
+      const N = pickSeries(data, "N", "n");
+      const E = pickSeries(data, "E", "e");
+      let K = data.K ?? data.k;
+      if (Array.isArray(K) || typeof K === "string") K = last(coerceArray(K), state.K);
+      K = Number(K);
+
+      if (!times.length && !N.length && !E.length) {
+        setPill(ui.mode, "MQTT rebut però sense dades", "warn");
+        return;
+      }
+
+      if (times.length) state.times = times;
+      if (N.length) state.N = N;
+      if (E.length) state.E = E;
+      if (!Number.isNaN(K)) state.K = K;
 
       state.live = true;
       state.lastUpdate = Date.now();
+      state.msgCount = (state.msgCount || 0) + 1;
+      ui.msg.textContent = String(state.msgCount);
       setPill(ui.mode, "Dades en viu", "ok");
       ui.n.textContent = Math.round(last(state.N)).toLocaleString("ca");
       ui.e.textContent = Math.round(last(state.E)).toLocaleString("ca");
@@ -187,6 +235,7 @@
 
       p.draw = () => {
         if (DEMO) demoStep();
+        else if (!state.live) setPill(ui.mode, "Esperant Snap!", "warn");
 
         state.fishPhase += 0.015;
         const nNow = last(state.N, 500);
