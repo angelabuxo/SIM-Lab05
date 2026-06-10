@@ -57,10 +57,7 @@
     <div class="pane">
       <div class="pane-inner">
         <span class="pane-label">Snap! (control)</span>
-        <iframe
-          title="Snap!"
-          src="https://snap.berkeley.edu/snap/snap.html#open:https://raw.githubusercontent.com/angelabuxo/SIM-Lab05/main/InsightMaker.xml">
-        </iframe>
+        <iframe id="snapFrame" title="Snap!"></iframe>
       </div>
     </div>
     <div class="divider" id="divider1" aria-label="Separador 1"></div>
@@ -83,6 +80,15 @@
   </div>
 
   <script>
+    (function loadSnap() {
+      const local = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+      const project = local
+        ? `${location.origin}${location.pathname.replace(/[^/]+$/, "")}InsightMaker.xml`
+        : "https://raw.githubusercontent.com/angelabuxo/SIM-Lab05/main/InsightMaker.xml";
+      document.getElementById("snapFrame").src =
+        `https://snap.berkeley.edu/snap/snap.html#open:${encodeURIComponent(project)}`;
+    })();
+
     const split = document.getElementById("split");
     const divider1 = document.getElementById("divider1");
     const divider2 = document.getElementById("divider2");
