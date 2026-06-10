@@ -81,10 +81,7 @@
 
   <script>
     (function loadSnap() {
-      const local = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-      const project = local
-        ? `${location.origin}${location.pathname.replace(/[^/]+$/, "")}InsightMaker.xml`
-        : "https://raw.githubusercontent.com/angelabuxo/SIM-Lab05/main/InsightMaker.xml";
+      const project = "https://raw.githubusercontent.com/angelabuxo/SIM-Lab05/main/InsightMaker.xml";
       document.getElementById("snapFrame").src =
         `https://snap.berkeley.edu/snap/snap.html#open:${encodeURIComponent(project)}`;
     })();
