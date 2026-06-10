@@ -106,12 +106,14 @@
       if (typeof value === "string") {
         const trimmed = value.trim();
         if (!trimmed) return [];
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (Array.isArray(parsed)) return parsed.map(Number).filter((n) => !Number.isNaN(n));
-          if (typeof parsed === "number") return [parsed];
-        } catch {
-          /* continua */
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) return parsed.map(Number).filter((n) => !Number.isNaN(n));
+            if (typeof parsed === "number") return [parsed];
+          } catch {
+            /* continua amb split */
+          }
         }
         return trimmed
           .replace(/^\[|\]$/g, "")
@@ -144,7 +146,10 @@
       const N = pickSeries(data, "N", "n");
       const E = pickSeries(data, "E", "e");
       let K = data.K ?? data.k;
-      if (Array.isArray(K) || typeof K === "string") K = last(coerceArray(K), state.K);
+      if (Array.isArray(K) || typeof K === "string") {
+        const kArr = coerceArray(K);
+        K = kArr.length ? last(kArr) : Number(String(K).replace(/[,;\s].*$/, ""));
+      }
       K = Number(K);
 
       if (!times.length && !N.length && !E.length) {
