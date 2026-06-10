@@ -290,8 +290,9 @@
         const boats = p.constrain(p.floor(p.map(eNow, 0, 250, 1, 6)), 1, 6);
         for (let i = 0; i < boats; i++) {
           const x = 60 + i * ((p.width - 120) / Math.max(1, boats - 1));
-          const y = oceanH * 0.78;
-          drawBoat(p, x, y, 1 + eNow / 400);
+          const scale = 1 + eNow / 400;
+          const y = oceanH * 0.55 - 4.5 * scale;
+          drawBoat(p, x, y, scale);
         }
 
         p.fill(230, 245, 255);
@@ -321,9 +322,11 @@
       p.scale(scale);
       p.fill(120, 72, 38);
       p.noStroke();
-      p.arc(0, 0, 34, 18, p.PI, p.TWO_PI);
+      p.arc(0, 0, 34, 18, 0, p.PI);
       p.fill(220, 80, 70);
-      p.rect(-2, -28, 4, 28);
+      p.triangle(0, -24, -9, 0, 9, 0);
+      p.fill(100, 60, 20);
+      p.rect(-1.5, -24, 3, 24);
       p.pop();
     }
 

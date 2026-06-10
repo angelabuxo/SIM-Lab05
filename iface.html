@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Micromon — Snap! + Insight Maker + Visualització</title>
   <style>
-    :root { --gutter: 8px; --minPane: 160px; }
+    :root { --gutter: 8px; --minPane: 160px; --minPaneV: 120px; }
     html, body { height: 100%; margin: 0; }
     .split {
       height: 100vh;
       display: grid;
-      grid-template-columns: 1fr var(--gutter) 1fr var(--gutter) 1fr;
+      grid-template-columns: 1fr var(--gutter) 1fr;
       overflow: hidden;
       user-select: none;
     }
@@ -29,6 +29,31 @@
     }
     .pane-inner { position: relative; width: 100%; height: 100%; }
     iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+    .left-stack {
+      display: grid;
+      grid-template-rows: 1fr var(--gutter) 1fr;
+      height: 100%;
+      overflow: hidden;
+    }
+    .vdivider {
+      cursor: row-resize;
+      background: #e5e7eb;
+      position: relative;
+      touch-action: none;
+    }
+    .vdivider::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 0;
+      transform: translateY(-50%);
+      width: 100%;
+      height: 2px;
+      background: #9ca3af;
+      opacity: 0.8;
+    }
+    .sub-pane { overflow: hidden; min-height: 0; }
 
     .divider {
       cursor: col-resize;
@@ -50,27 +75,33 @@
 
     .dragging { cursor: col-resize; }
     .dragging iframe { pointer-events: none; }
+    .dragging-vert { cursor: row-resize; }
+    .dragging-vert iframe { pointer-events: none; }
   </style>
 </head>
 <body>
   <div class="split" id="split">
     <div class="pane">
-      <div class="pane-inner">
-        <span class="pane-label">Snap! (control)</span>
-        <iframe id="snapFrame" title="Snap!"></iframe>
+      <div class="left-stack" id="leftStack">
+        <div class="sub-pane">
+          <div class="pane-inner">
+            <span class="pane-label">Snap! (control)</span>
+            <iframe id="snapFrame" title="Snap!"></iframe>
+          </div>
+        </div>
+        <div class="vdivider" id="vdivider" aria-label="Separador vertical"></div>
+        <div class="sub-pane">
+          <div class="pane-inner">
+            <span class="pane-label">Insight Maker (model)</span>
+            <iframe
+              title="Insight Maker"
+              src="https://insightmaker.com/insight/4uanRT82clj5QHRmZOUhRi/12E-Lab03-Base">
+            </iframe>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="divider" id="divider1" aria-label="Separador 1"></div>
-    <div class="pane">
-      <div class="pane-inner">
-        <span class="pane-label">Insight Maker (model)</span>
-        <iframe
-          title="Insight Maker"
-          src="https://insightmaker.com/insight/4uanRT82clj5QHRmZOUhRi/12E-Lab03-Base">
-        </iframe>
-      </div>
-    </div>
-    <div class="divider" id="divider2" aria-label="Separador 2"></div>
+    <div class="divider" id="divider-h" aria-label="Separador horitzontal"></div>
     <div class="pane">
       <div class="pane-inner">
         <span class="pane-label">Visualització 2D (p5.js)</span>
@@ -87,71 +118,89 @@
     })();
 
     const split = document.getElementById("split");
-    const divider1 = document.getElementById("divider1");
-    const divider2 = document.getElementById("divider2");
+    const leftStack = document.getElementById("leftStack");
+    const dividerH = document.getElementById("divider-h");
+    const vdivider = document.getElementById("vdivider");
     const gutter = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--gutter")) || 8;
     const minPane = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--minPane")) || 160;
+    const minPaneV = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--minPaneV")) || 120;
 
-    let dragging = null;
+    let draggingH = false;
+    let draggingV = false;
 
-    function setColumns(x1, x2) {
+    function setColumns(x) {
       const rect = split.getBoundingClientRect();
-      const total = rect.width - gutter * 2;
+      const total = rect.width - gutter;
       const min = minPane;
-      const max = total - min * 2;
+      x = Math.max(min, Math.min(total - min, x));
+      split.style.gridTemplateColumns = `${x}px ${gutter}px ${total - x}px`;
+    }
 
-      x1 = Math.max(min, Math.min(max - min, x1));
-      x2 = Math.max(x1 + min, Math.min(total - min, x2));
-
-      const left = x1;
-      const mid = x2 - x1;
-      const right = total - x2;
-
-      split.style.gridTemplateColumns = `${left}px ${gutter}px ${mid}px ${gutter}px ${right}px`;
+    function setRows(y) {
+      const rect = leftStack.getBoundingClientRect();
+      const total = rect.height - gutter;
+      const min = minPaneV;
+      y = Math.max(min, Math.min(total - min, y));
+      leftStack.style.gridTemplateRows = `${y}px ${gutter}px ${total - y}px`;
     }
 
     function initColumns() {
       const rect = split.getBoundingClientRect();
-      const total = rect.width - gutter * 2;
-      setColumns(total / 3, (total * 2) / 3);
+      const total = rect.width - gutter;
+      setColumns(total / 2);
     }
 
-    function onDown(which, e) {
-      dragging = which;
+    function initRows() {
+      const rect = leftStack.getBoundingClientRect();
+      const total = rect.height - gutter;
+      setRows(total / 2);
+    }
+
+    function onDownH(e) {
+      draggingH = true;
       document.body.classList.add("dragging");
       e.preventDefault();
     }
 
-    function onMove(e) {
-      if (!dragging) return;
-      const rect = split.getBoundingClientRect();
-      const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
-      const x = clientX - rect.left;
-      const cols = split.style.gridTemplateColumns.split(" ").map(parseFloat);
-      const x1 = cols[0];
-      const x2 = cols[0] + gutter + cols[2];
-
-      if (dragging === 1) setColumns(x, x2);
-      else setColumns(x1, x);
-
+    function onDownV(e) {
+      draggingV = true;
+      document.body.classList.add("dragging-vert");
       e.preventDefault();
     }
 
+    function onMove(e) {
+      if (draggingH) {
+        const rect = split.getBoundingClientRect();
+        const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
+        setColumns(clientX - rect.left);
+        e.preventDefault();
+      }
+      if (draggingV) {
+        const rect = leftStack.getBoundingClientRect();
+        const clientY = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
+        setRows(clientY - rect.top);
+        e.preventDefault();
+      }
+    }
+
     function onUp() {
-      dragging = null;
-      document.body.classList.remove("dragging");
+      if (draggingH) document.body.classList.remove("dragging");
+      if (draggingV) document.body.classList.remove("dragging-vert");
+      draggingH = false;
+      draggingV = false;
     }
 
     initColumns();
-    window.addEventListener("resize", initColumns);
+    initRows();
+    window.addEventListener("resize", () => { initColumns(); initRows(); });
 
-    divider1.addEventListener("mousedown", (e) => onDown(1, e));
-    divider2.addEventListener("mousedown", (e) => onDown(2, e));
+    dividerH.addEventListener("mousedown", onDownH);
+    vdivider.addEventListener("mousedown", onDownV);
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
 
-    divider1.addEventListener("touchstart", (e) => onDown(1, e), { passive: false });
-    divider2.addEventListener("touchstart", (e) => onDown(2, e), { passive: false });
+    dividerH.addEventListener("touchstart", onDownH, { passive: false });
+    vdivider.addEventListener("touchstart", onDownV, { passive: false });
     window.addEventListener("touchmove", onMove, { passive: false });
     window.addEventListener("touchend", onUp);
   </script>
